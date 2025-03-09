@@ -1,0 +1,91 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
+
+# Step 1: Load the dataset
+df = pd.read_csv("data.csv")
+
+# Step 2: Data Preprocessing
+# Handling missing values
+df.fillna(df.median(numeric_only=True), inplace=True)
+
+# Encoding categorical variables if necessary
+label_encoders = {}
+for column in df.select_dtypes(include=['object']).columns:
+    le = LabelEncoder()
+    df[column] = le.fit_transform(df[column])
+    label_encoders[column] = le
+
+# Selecting features and target variable
+X = df.drop(columns=["liked"])  # Features
+y = df["liked"]  # Target variable
+
+# Normalizing numerical features
+scaler = StandardScaler()
+X = scaler.fit_transform(X)
+
+# Step 4: Splitting the data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Step 5: Training the Model
+clf = RandomForestClassifier(random_state=42)
+clf.fit(X_train, y_train)
+
+# Step 6: Evaluating the Model
+y_pred = clf.predict(X_test)
+y_prob = clf.predict_proba(X_test)[:, 1]
+
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("Precision:", precision_score(y_test, y_pred))
+print("Recall:", recall_score(y_test, y_pred))
+print("F1 Score:", f1_score(y_test, y_pred))
+print("ROC-AUC:", roc_auc_score(y_test, y_prob))
+print("\nClassification Report:\n", classification_report(y_test, y_pred))
+
+# Step 7: Hyperparameter Tuning
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [None, 10, 20],
+    'min_samples_split': [2, 5, 10]
+}
+grid_search = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=5, scoring='accuracy')
+grid_search.fit(X_train, y_train)
+print("Best parameters:", grid_search.best_params_)
+
+# Train with best parameters
+best_clf = grid_search.best_estimator_
+best_clf.fit(X_train, y_train)
+
+# Step 8: Save the model
+joblib.dump(best_clf, "song_replay_model.pkl")
+joblib.dump(scaler, "scaler.pkl")
+joblib.dump(label_encoders, "label_encoders.pkl")
+
+# Step 9: Function for Prediction
+def predict_song_replay(song_features):
+    """Predict if a user will repeatedly listen to a song."""
+    model = joblib.load("song_replay_model.pkl")
+    scaler = joblib.load("scaler.pkl")
+    label_encoders = joblib.load("label_encoders.pkl")
+    
+    # Preprocess input
+    song_features = pd.DataFrame([song_features])
+    for column in label_encoders:
+        if column in song_features:
+            song_features[column] = label_encoders[column].transform(song_features[column])
+    song_features = scaler.transform(song_features)
+    
+    # Prediction
+    prediction = model.predict(song_features)[0]
+    probability = model.predict_proba(song_features)[0, 1]
+    return {"Prediction": int(prediction), "Probability": probability}
+
+# Example usage:
+# new_song = {"feature1": value1, "feature2": value2, ..., "featureN": valueN}
+# print(predict_song_replay(new_song))
